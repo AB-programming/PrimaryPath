@@ -1,0 +1,42 @@
+spring:
+  application:
+    name: agent
+  datasource:
+    url: jdbc:postgresql://localhost:5432/agent
+    username: postgres
+    password: 12345678
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none  # 表结构由 schema.sql 维护
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+
+ai:
+  llm:
+    api-key: ${AI_API_KEY}
+    base-url: ${AI_BASE_URL}
+    model-name: ${AI_MODEL}
+
+jwt:
+  # HS256 要求密钥 >= 32 字节；生产环境必须替换
+  secret: 2nZbXPFh02EjWL_kZHcUlFN0FxKdt4BBGYIRUJ_6Xkw
+  expiration-ms: 604800000  # 7 天
+
+langchain4j:
+  open-ai:
+    chat-model:
+      api-key: ${ai.llm.api-key}
+      base-url: ${ai.llm.base-url}
+      model-name: ${ai.llm.model-name}
+      log-requests: true
+      log-responses: true
+    streaming-chat-model:
+      api-key: ${ai.llm.api-key}
+      base-url: ${ai.llm.base-url}
+      model-name: ${ai.llm.model-name}
+      log-requests: true
+      log-responses: true

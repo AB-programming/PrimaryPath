@@ -1,0 +1,29 @@
+CREATE TABLE IF NOT EXISTS chat_memory (
+    memory_id VARCHAR(255) PRIMARY KEY,
+    messages  TEXT        NOT NULL DEFAULT '[]',
+    updated_at TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id         VARCHAR(255) PRIMARY KEY,
+    title      VARCHAR(500) NOT NULL DEFAULT 'New Chat',
+    created_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS documents (
+    id         VARCHAR(255) PRIMARY KEY,
+    name       VARCHAR(500) NOT NULL,
+    content    TEXT         NOT NULL,
+    chunk_count INTEGER     NOT NULL DEFAULT 0,
+    created_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS users (
+    id            VARCHAR(255) PRIMARY KEY,
+    username      VARCHAR(32)  NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (username);
