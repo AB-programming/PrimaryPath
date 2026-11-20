@@ -15,13 +15,10 @@ import org.springframework.stereotype.Service;
 public class ChatService {
 
     private final Assistant assistant;
-    private final SessionService sessionService;
 
     public String chat(String sessionId, String message) {
         log.info("[Chat] sessionId={}, message={}", sessionId, message);
-        sessionService.ensureSession(sessionId, message);
-        String response = assistant.chat(sessionId, message);
-        sessionService.touchUpdatedAt(sessionId);
+        String response = assistant.chat(message);
         log.info("[Chat] sessionId={}, response={}", sessionId, response);
         return response;
     }
@@ -33,11 +30,6 @@ public class ChatService {
      */
     public TokenStream chatStream(String sessionId, String message) {
         log.info("[Stream] sessionId={}, message={}", sessionId, message);
-        sessionService.ensureSession(sessionId, message);
-        return assistant.chatStream(sessionId, message);
-    }
-
-    public void markSessionActive(String sessionId) {
-        sessionService.touchUpdatedAt(sessionId);
+        return assistant.chatStream(message);
     }
 }

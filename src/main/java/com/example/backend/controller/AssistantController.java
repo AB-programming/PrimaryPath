@@ -48,7 +48,6 @@ public class AssistantController {
                 })
                 .onCompleteResponse(response -> {
                     log.info("[Stream] sessionId={}, completed", sessionId);
-                    chatService.markSessionActive(sessionId);
                     emitter.complete();
                 })
                 .onError(error -> {

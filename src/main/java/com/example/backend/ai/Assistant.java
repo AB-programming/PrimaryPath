@@ -1,6 +1,5 @@
 package com.example.backend.ai;
 
-import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.UserMessage;
@@ -18,7 +17,7 @@ public interface Assistant {
             Answer based on the provided context when available, otherwise use your
             general knowledge. Be concise and accurate.
             """)
-    String chat(@MemoryId String memoryId, @UserMessage String userMessage);
+    String chat(@UserMessage String userMessage);
 
     @SystemMessage("""
             You are a helpful assistant with access to tools and a knowledge base.
@@ -29,5 +28,5 @@ public interface Assistant {
             Answer based on the provided context when available, otherwise use your
             general knowledge. Be concise and accurate.
             """)
-    TokenStream chatStream(@MemoryId String memoryId, @UserMessage String userMessage);
+    TokenStream chatStream(@UserMessage String userMessage);
 }
