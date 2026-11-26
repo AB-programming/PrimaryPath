@@ -45,7 +45,7 @@ PrimaryPath 后端
 | Embedding | all-MiniLM-L6-v2（进程内 ONNX），规划换中文模型 |
 | 向量存储 | 内存 EmbeddingStore，规划迁 PostgreSQL + pgvector |
 | 数据库 | PostgreSQL，表结构由 schema.sql 维护 |
-| 认证 | JWT（jjwt 0.12.x）+ BCrypt；规划加租户级接入凭证 |
+| 认证 | 对外接入：API Key（`X-Api-Key`，带 scope，只存哈希）；用户登录：JWT（jjwt 0.12.x）+ BCrypt |
 | 测试 | JUnit 5 + Spring Boot Test；另有 Lombok |
 
 ## 项目结构
@@ -55,16 +55,17 @@ PrimaryPath 后端
 ├── build.gradle.kts / settings.gradle.kts   # rootProject.name = backend（遗留命名）
 ├── gradlew / gradlew.bat / gradle/wrapper/  # Gradle Wrapper 9.5.1
 ├── README.md / PLAN.md / AGENTS.md / LICENSE
+├── docs/auth-design.md                  # 鉴权与租户接入方案
 └── src
     ├── main
     │   ├── java/com/example/backend
     │   │   ├── BackendApplication.java     # 启动类
     │   │   ├── ai/Assistant.java           # LangChain4j AiService：同步 + 流式对话
-    │   │   ├── config/                     # RagConfig、WebMvcConfig、LlmConfigLogger
-    │   │   ├── controller/                 # AssistantController（SSE）、AuthController
-    │   │   ├── service/                    # ChatService、AuthService
-    │   │   ├── security/                   # JWT 签发、校验、拦截器
-    │   │   ├── model/ repository/          # 用户实体与仓库
+    │   │   ├── config/                     # RagConfig、WebMvcConfig、LlmConfigLogger、AuthProperties
+    │   │   ├── controller/                 # AssistantController（SSE）、AuthController、AdminTenantController
+    │   │   ├── service/                    # ChatService、AuthService、TenantService、ApiKeyService
+    │   │   ├── security/                   # API Key 拦截器与 scope、JWT 签发与拦截器、ADMIN 校验
+    │   │   ├── model/ repository/          # 用户、租户、接入凭证实体与仓库
     │   │   ├── dto/                        # 请求 / 响应（record）
     │   │   └── exception/                  # BusinessException、全局异常处理
     │   └── resources
@@ -142,6 +143,12 @@ curl -G "http://localhost:8080/assistant/chat" --data-urlencode "message=你好"
 
 这两个是骨架接口，用来确认模型链路通了；正式接口见 PLAN.md。
 
+管理端接口（`/admin/tenants`，建租户、发 key）需要 ADMIN 账号。先用 `/auth/register` 注册，再到库里把这个用户提为管理员，之后用 `/auth/login` 拿 token：
+
+```sql
+UPDATE users SET role = 'ADMIN' WHERE username = '<用户名>';
+```
+
 ## 构建与部署
 
 ```bash
@@ -184,15 +191,16 @@ v1 只开 7 个接口：
 | GET | /v1/diseases | 可用病种、版本、任务类型 |
 | GET | /v1/health | 健康检查 |
 
-请求结构、SSE 事件协议和错误码见 [PLAN.md](PLAN.md)。
+请求结构、SSE 事件协议、错误码和管理端接口见 [PLAN.md](PLAN.md)，鉴权方案见 [docs/auth-design.md](docs/auth-design.md)。
 
 ## 当前进度
 
 | 模块 | 状态 |
 |---|---|
 | 工程骨架、模型接入（同步 + 流式）、PG 建表、JWT 登录 | 已完成 |
+| 租户接入鉴权：tenants / api_keys 表、API Key 拦截器与 scope、管理端接口、开放注册开关 | 已完成；`/v1/**` 还没有接口，拦截器已挂上。限流和知识库按租户隔离在 M3 |
 | RAG 组件 | 骨架：内存向量库 + 本地 embedding，没有入库接口，重启清空 |
-| 知识库管理、病种包、正式辅助接口、租户鉴权、全流程能力、评测审计、演示前端 | 规划中，见 [PLAN.md](PLAN.md) 的里程碑 |
+| 知识库管理、病种包、正式辅助接口、租户隔离与限流、全流程能力、评测审计、演示前端 | 规划中，见 [PLAN.md](PLAN.md) 的里程碑 |
 
 ## 许可证
 

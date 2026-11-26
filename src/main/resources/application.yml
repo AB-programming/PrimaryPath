@@ -26,6 +26,10 @@ jwt:
   secret: 2nZbXPFh02EjWL_kZHcUlFN0FxKdt4BBGYIRUJ_6Xkw
   expiration-ms: 604800000  # 7 天
 
+auth:
+  # 是否开放 /auth/register。对外部署改 false，账号由 ADMIN 创建
+  open-registration: true
+
 langchain4j:
   open-ai:
     chat-model:

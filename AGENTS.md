@@ -35,13 +35,17 @@ LangChain4j 是 beta、Spring Boot 4.1 较新：不熟的类先查对应版本�
 |---|---|
 | `ai/Assistant` | @AiService 接口：`chat()` 同步，`chatStream()` 返回 TokenStream；system prompt 还是通用助手文案 |
 | `config/RagConfig` | AllMiniLmL6V2EmbeddingModel、InMemoryEmbeddingStore、Ingestor（`recursive(800, 100)` 切片）、ContentRetriever（取前 3 条，minScore 0.6） |
-| `config/WebMvcConfig` | 注册 JwtAuthInterceptor，目前只拦 `/auth/me` |
+| `config/WebMvcConfig` | 注册两条认证链：ApiKeyAuthInterceptor 拦 `/v1/**`（放行 `/v1/health`）；JwtAuthInterceptor 拦 `/auth/me`、`/admin/**`；AdminRequiredInterceptor 拦 `/admin/**`，按注册顺序在 JWT 之后执行 |
+| `config/AuthProperties` | `auth.open-registration` 配置项，默认 true |
 | `config/LlmConfigLogger` | 启动时打印生效的 base-url 和模型名，不打印密钥 |
 | `controller/AssistantController` | `/assistant/chat`、`/assistant/chat/stream`；TokenStream 绑 SseEmitter 在这层做 |
 | `controller/AuthController` | `/auth/register`、`/auth/login`、`/auth/me` |
+| `controller/AdminTenantController` | `/admin/tenants` 五个管理端接口：建租户、列表、停用、发 key、吊销 |
 | `service/ChatService`、`AuthService` | ChatService 调 Assistant；AuthService 管注册登录，用户名 3–32 位字母数字下划线，密码至少 6 位 |
+| `service/TenantService`、`ApiKeyService` | TenantService 管租户和 key 的发放、吊销；ApiKeyService 在请求时校验 key，节流更新 last_used_at |
 | `security/` | JwtTokenProvider：HS256，`sub` 用户名、`uid` 用户 id，默认 7 天；JwtAuthInterceptor 校验 Bearer token，把 userId / username 塞进 request attribute |
-| `model/`、`repository/` | UserInfo（BCrypt 哈希，`@JsonIgnore`）、UserRepository |
+| `security/`（接入） | ApiKeyCodec：key 生成、解析、SHA-256；ApiScope：4 个 scope 和路径登记表，没登记的 `/v1` 路径默认 403；ApiKeyAuthInterceptor：校验 `X-Api-Key` 和 scope，注入 tenantId / apiKeyId；AdminRequiredInterceptor：查库验 ADMIN。方案见 docs/auth-design.md |
+| `model/`、`repository/` | UserInfo（BCrypt 哈希，`@JsonIgnore`，role 取 USER / ADMIN）、Tenant、ApiKey，对应三个 Repository |
 | `dto/` | 三个 record：AuthResponse、LoginRequest、RegisterRequest |
 | `exception/` | BusinessException（工厂方法 badRequest / notFound / conflict / unauthorized），GlobalExceptionHandler 统一转响应 |
 
@@ -55,12 +59,14 @@ LangChain4j 是 beta、Spring Boot 4.1 较新：不熟的类先查对应版本�
 | `ai.llm.*` | 自定义键，被下方 starter 引用；提交版本从 `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` 环境变量读 |
 | `langchain4j.open-ai.chat-model / streaming-chat-model` | 同步和流式模型；log-requests / log-responses 是开着的，会记完整请求响应 |
 | `jwt.secret` / `jwt.expiration-ms` | HS256 密钥（至少 32 字节）/ 有效期 |
+| `auth.open-registration` | 是否开放 `/auth/register`，默认 true；对外部署改 false |
 
 数据表（schema.sql）：
 
 | 表 | 使用情况 |
 |---|---|
-| `users` | 已用（UserInfo） |
+| `users` | 已用（UserInfo，含 role 列） |
+| `tenants`、`api_keys` | 已用（租户、接入凭证，只存 secret 的哈希） |
 | `sessions`、`chat_memory` | 没用，无代码引用 |
 | `documents` | 没用，无实体、无上传接口 |
 
@@ -72,9 +78,14 @@ HTTP 接口（业务错误统一返回 `{"message": "..."}`）：
 | GET | /auth/me | JWT | 当前用户 |
 | GET | /assistant/chat | 无 | 同步对话，参数 message、sessionId |
 | GET | /assistant/chat/stream | 无 | SSE 流式，参数同上 |
+| POST / GET | /admin/tenants | JWT + ADMIN | 建租户、租户列表 |
+| PATCH | /admin/tenants/{id} | JWT + ADMIN | 停用 / 启用租户 |
+| POST | /admin/tenants/{id}/keys | JWT + ADMIN | 发 key，明文只返回一次 |
+| DELETE | /admin/tenants/{id}/keys/{keyId} | JWT + ADMIN | 吊销 key |
+| 预留 | /v1/** | X-Api-Key + scope | 拦截器已挂，还没有接口；错误体带 code，清单见 PLAN.md |
 
-已实现：模型链路（同步 + 流式）、PG、JWT 登录、RAG 组件的 Bean。
-未实现：文档入库、向量持久化、病种包与规则引擎、/v1/assist/*、租户鉴权、会话记忆、审计评测、健康检查、Dockerfile、CI。
+已实现：模型链路（同步 + 流式）、PG、JWT 登录、RAG 组件的 Bean；租户接入鉴权骨架（tenants / api_keys 表、API Key 拦截器与 scope、管理端接口、开放注册开关）。
+未实现：文档入库、向量持久化、病种包与规则引擎、/v1/assist/*、租户隔离与限流、会话记忆、审计评测、健康检查、Dockerfile、CI。
 
 ## 编码约定
 
@@ -84,7 +95,7 @@ HTTP 接口（业务错误统一返回 `{"message": "..."}`）：
 - 构造器注入：`@RequiredArgsConstructor` 加 final 字段，不用字段上的 `@Autowired`。
 - DTO 用 record；实体用 `@Data @Builder @NoArgsConstructor @AllArgsConstructor`，敏感字段 `@JsonIgnore`。
 - 业务错误在 service 抛 BusinessException（用工厂方法），Controller 不自己拼错误响应。
-- 日志 `@Slf4j`，带模块前缀（[Auth] [Chat] [Stream] [Tool] [LLM] [Business]），用 `{}` 占位符。
+- 日志 `@Slf4j`，带模块前缀（[Auth] [Chat] [Stream] [Tool] [LLM] [Business] [ApiKey] [Tenant]），用 `{}` 占位符。
 - 改表只改 schema.sql，语句必须幂等，因为每次启动都执行。
 - 版本优先交给 Boot BOM 管；LangChain4j 各模块版本保持一致；加依赖要说明用途。
 - 注释、日志、错误提示用中文，标识符用英文。
@@ -112,9 +123,10 @@ Linux / macOS 把 `.\gradlew.bat` 换成 `./gradlew`。
 2. 没有多轮记忆：sessionId 只进日志，chat_memory 表没人用。
 3. 知识库是空的：documents 表无实体无接口，Ingestor 没有调用方，InMemoryEmbeddingStore 重启清空。
 4. all-MiniLM-L6-v2 偏英文，中文医学文本的检索要重新选型。
-5. `/assistant/**` 无鉴权；现有 JWT 是用户登录体系，不是租户接入鉴权。
+5. `/assistant/**` 无鉴权；JWT 是用户登录体系（含 ADMIN 角色），对外接入走 `X-Api-Key`，但 `/v1/**` 还没有接口，拦截器只是先挂上了。
 6. log-requests / log-responses、消息日志、工具结果日志会带患者数据，接真实数据前必须默认关或脱敏。
 7. 提交版本里 jwt.secret 和数据库密码是明文字面量（开发默认值），上线前换环境变量。
 8. 命名遗留：rootProject.name=backend、spring.application.name=agent、包名 com.example.backend、库名 agent，和 PrimaryPath 对不上；重命名涉及面广，要用户确认后单独做。
 9. GlobalExceptionHandler 只处理 BusinessException 和 DuplicateKeyException，参数校验失败、404 走 Spring 默认响应，格式不统一。
 10. 没有健康检查端点、Dockerfile、CI。
+11. 没有建用户的管理接口：第一个 ADMIN 只能用 SQL 改 role（README 快速开始有命令）；`auth.open-registration` 默认 true，对外部署要改 false。

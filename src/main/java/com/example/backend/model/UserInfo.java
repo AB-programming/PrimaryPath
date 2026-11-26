@@ -22,6 +22,9 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class UserInfo {
 
+    public static final String ROLE_USER = "USER";
+    public static final String ROLE_ADMIN = "ADMIN";
+
     @Id
     private String id;
 
@@ -32,6 +35,11 @@ public class UserInfo {
     @JsonIgnore
     @Column(name = "password_hash", nullable = false)
     private String passwordHash;
+
+    /** USER / ADMIN。ADMIN 才能进 /admin/**，见 docs/auth-design.md 第 5 节 */
+    @Builder.Default
+    @Column(nullable = false)
+    private String role = ROLE_USER;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

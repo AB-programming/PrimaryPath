@@ -113,7 +113,21 @@ event: done
 data: {"suggestion_count":1,"usage":{"input_tokens":1840,"output_tokens":96},"latency_ms":2140}
 ```
 
-鉴权与租户：API Key 支持轮换，服务端只存哈希；知识检索强制带 `tenant_id` 过滤（全局基础库 + 租户专有库）；病种包按租户启用列表加载；按租户限流。仓库现有的 JWT 登录只给演示前端用，不用于对外接入。
+鉴权与租户（细节见 [docs/auth-design.md](docs/auth-design.md)）：
+
+- `/v1/**` 用 `X-Api-Key`。key 形如 `pp_<kid>_<secret>`，服务端只存 SHA-256，明文只在发放时返回一次。一个租户可持多把 key，用于轮换和按接入系统分离；吊销即时生效。
+- key 带 scope，拦截器按路径检查；没登记 scope 的 `/v1` 路径默认 403。登记在 `ApiScope.ROUTES`，新增接口时同步加一行。
+
+| scope | 接口 |
+|---|---|
+| assist | POST /v1/assist/stream |
+| feedback | POST /v1/assist/feedback |
+| knowledge:read | GET /v1/knowledge/documents |
+| knowledge:write | POST、DELETE /v1/knowledge/documents |
+| 无需 scope | GET /v1/diseases、/v1/health |
+
+- 租户和 key 由管理端接口发放（见下方「管理端接口」）。仓库现有的 JWT 登录给演示前端和管理端用，不用于对外接入。
+- 知识检索强制带 `tenant_id` 过滤（全局基础库 + 租户专有库）；病种包按租户启用列表加载；按租户限流。这几项随 M1、M3 落地。
 
 错误码：
 
@@ -122,11 +136,24 @@ data: {"suggestion_count":1,"usage":{"input_tokens":1840,"output_tokens":96},"la
 | 400 | INVALID_ARGUMENT | 参数缺失或格式错误 |
 | 401 | UNAUTHORIZED | 凭证缺失或无效 |
 | 403 | DISEASE_NOT_ENABLED | 租户未启用该病种 |
+| 403 | FORBIDDEN | scope 不足、租户停用、接口未开放 |
 | 404 | NOT_FOUND | 资源不存在 |
 | 413 | DOCUMENT_TOO_LARGE | 文档超大小限制 |
 | 422 | UNSUPPORTED_DOCUMENT | 格式不支持或解析失败 |
 | 429 | RATE_LIMITED | 超出租户限流 |
 | 502 / 504 | MODEL_UNAVAILABLE / TIMEOUT | 模型服务异常 / 生成超时 |
+
+### 管理端接口
+
+7 个对外接口里没有租户管理入口，而发凭证是对外接入的前置条件，所以单列一组。鉴权是 JWT 加 ADMIN 角色（`users.role`），错误响应沿用 `{"message": "..."}`。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| POST | /admin/tenants | 建租户 |
+| GET | /admin/tenants | 租户列表，含 key 元数据，不含密钥 |
+| PATCH | /admin/tenants/{id} | 停用 / 启用租户，status 取 active / suspended |
+| POST | /admin/tenants/{id}/keys | 发 key，scopes 取值见上表；响应里唯一一次返回明文 apiKey |
+| DELETE | /admin/tenants/{id}/keys/{keyId} | 吊销，重复吊销幂等 |
 
 ## 病种包
 
@@ -194,7 +221,7 @@ src/main/resources/disease-packs/htn/v1/
 | M0 工程基线（进行中） | 健康检查端点、CI、Testcontainers、错误响应统一、日志脱敏开关、密钥全外置 | CI 里 `./gradlew test` 通过；/v1/health 返回 200 |
 | M1 知识库 | 向量索引迁 pgvector；中文 embedding；文档上传、解析、切片、元数据；按租户和病种过滤的检索；出处返回；文档状态机；3 个管理接口 | 上传一份 PDF 指南后，针对其中内容的提问能返回章节和页码；重启后索引还在；没命中时明说没有依据 |
 | M2 问诊辅助核心 | 首个病种包；/v1/assist/stream 与事件协议；规则引擎；引用对齐；按问诊的会话记忆；审计日志；不调模型的 mock 联调模式 | 评测集上红旗征零漏报；每条建议带有效出处 |
-| M3 接入与交付 | 租户与凭证管理、隔离、限流；能力发现；接入文档和可运行示例；Dockerfile、docker-compose | 两个租户互相看不见对方知识库；外部开发者半天联调通；compose up 起全套环境 |
+| M3 接入与交付 | 租户隔离、限流；能力发现；接入文档和可运行示例；Dockerfile、docker-compose（租户、凭证与 scope 鉴权已提前落地） | 两个租户互相看不见对方知识库；外部开发者半天联调通；compose up 起全套环境 |
 | M4 全流程 | 随访计划、家医签约提示、档案字段草稿、转诊建议、病历草稿、患教草稿、医保提示（规则按地区配置） | 问诊结束一次调用产出随访 + 档案 + 协作建议 |
 | M5 质量与运营 | 评测回归流水线；反馈与采纳率统计；监控时延、错误率、无依据率、成本；提示词与病种包版本管理 | 每次发版自动出评测报告；任一条线上建议能定位到检索片段和提示词版本 |
 | M6 演示前端 | 问诊界面加医生侧栏，BFF 持有租户凭证 | 全部交互只走公开接口 |

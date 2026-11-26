@@ -1,5 +1,6 @@
 package com.example.backend.service;
 
+import com.example.backend.config.AuthProperties;
 import com.example.backend.dto.AuthResponse;
 import com.example.backend.dto.LoginRequest;
 import com.example.backend.dto.RegisterRequest;
@@ -15,6 +16,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -28,15 +30,21 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final JwtTokenProvider jwtTokenProvider;
+    private final AuthProperties authProperties;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     public AuthResponse register(RegisterRequest req) {
+        if (!authProperties.openRegistration()) {
+            // 对外部署关掉开放注册，账号由 ADMIN 创建
+            throw BusinessException.forbidden("注册已关闭，请联系管理员创建账号");
+        }
         validateRegisterRequest(req);
 
         UserInfo user = UserInfo.builder()
                 .id(UUID.randomUUID().toString())
                 .username(req.username())
                 .passwordHash(passwordEncoder.encode(req.password()))
+                .createdAt(LocalDateTime.now())
                 .build();
         try {
             userRepository.save(user);
